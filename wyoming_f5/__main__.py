@@ -39,7 +39,7 @@ async def main() -> None:
                 name="f5-tts-wyoming",
                 description="Wyoming server for ESpeech F5-TTS",
                 attribution=Attribution(
-                    name="ESpeech", url="https://github.com/e-speech/ESpeech-TTS-1_RL-V2"
+                    name="ESpeech", url="https://huggingface.co/ESpeech/ESpeech-TTS-1_RL-V2"
                 ),
                 installed=True,
                 version=__version__,
