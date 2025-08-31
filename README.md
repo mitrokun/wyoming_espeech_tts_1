@@ -1,2 +1,4 @@
 Пример запуска
 `python -m wyoming_f5 --ref-audio "D:\sushko\007.wav" --ref-text "Первое предполагает пристальное внимание к жизни, второе – ощущение нормы, более ценны, чем жизненная прагматика" --uri 'tcp://0.0.0.0:10210' --streaming`
+
+Наши львы: [https://huggingface.co/ESpeech](https://huggingface.co/ESpeech)
