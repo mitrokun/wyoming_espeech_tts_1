@@ -1,6 +1,6 @@
 import argparse
 import asyncio
-import io  # <-- Импортируем io
+import io
 import logging
 import math
 import wave
