@@ -43,7 +43,6 @@ class F5EventHandler(AsyncEventHandler):
         self.normalizer = TextNormalizer()
         _LOGGER.debug("Text normalizer initialized.")
 
-    # Метод handle_event остается без изменений
     async def handle_event(self, event: Event) -> bool:
         if Describe.is_type(event.type):
             await self.write_event(self.wyoming_info_event)
