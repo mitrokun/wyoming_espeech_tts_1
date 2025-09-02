@@ -1,6 +1,6 @@
 import os
 import contextlib
-import sys # <-- Импортируем sys для проверки версии Python
+import sys
 import torch
 import numpy as np
 from huggingface_hub import hf_hub_download
