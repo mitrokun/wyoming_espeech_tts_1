@@ -1,6 +1,6 @@
 wyoming-piper
 f5-tts
-ruaccent==0.1.3
+ruaccent
 torch
 torchaudio
 soundfile
