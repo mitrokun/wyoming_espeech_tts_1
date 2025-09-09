@@ -18,7 +18,7 @@ async def main() -> None:
     # --- Аргументы для нашего движка ---
     parser.add_argument("--ref-audio", required=True, help="Путь к референсному WAV файлу")
     parser.add_argument("--ref-text", required=True, help="Текст, произносимый в референсном аудио")
-    parser.add_argument("--nfe-step", type=int, default=16, help="Количество шагов NFE для модели синтеза")
+    parser.add_argument("--nfe-step", type=int, default=7, help="Количество шагов NFE [7-48]")
     # --- Общие аргументы сервера ---
     parser.add_argument("--uri", default="tcp://0.0.0.0:10206", help="unix://<path> или tcp://<host>:<port>")
     parser.add_argument("--streaming", action="store_true", help="Включить стриминг на границах предложений")
