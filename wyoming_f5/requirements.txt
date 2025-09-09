@@ -7,3 +7,4 @@ soundfile
 numpy
 huggingface_hub
 num2words
+eng_to_ipa
