@@ -1,18 +1,115 @@
-# text_normalizer.py
-
 import logging
 import re
 from num2words import num2words
+import eng_to_ipa as ipa
 
 log = logging.getLogger(__name__)
 
-# Словарь для транслитерации английских букв в русские
-ENGLISH_TO_RUSSIAN = {
-    'a': 'э', 'b': 'б', 'c': 'к', 'd': 'д', 'e': 'е', 'f': 'ф', 'g': 'г',
-    'h': 'х', 'i': 'и', 'j': 'ж', 'k': 'к', 'l': 'л', 'm': 'м', 'n': 'н',
-    'o': 'о', 'p': 'п', 'q': 'к', 'r': 'р', 's': 'с', 't': 'т', 'u': 'у',
-    'v': 'в', 'w': 'в', 'x': 'х', 'y': 'ай', 'z': 'з'
-}
+
+class _EnglishToRussianNormalizer:
+    """
+    Класс, инкапсулирующий всю логику для преобразования
+    английских слов в русское фонетическое представление.
+    Использует трехуровневый подход: словарь исключений, IPA-транскрипцию и,
+    в крайнем случае, простой побуквенный транслит.
+    """
+    SIMPLE_ENGLISH_TO_RUSSIAN = {
+        'a': 'э', 'b': 'б', 'c': 'к', 'd': 'д', 'e': 'е', 'f': 'ф', 'g': 'г',
+        'h': 'х', 'i': 'и', 'j': 'дж', 'k': 'к', 'l': 'л', 'm': 'м', 'n': 'н',
+        'o': 'о', 'p': 'п', 'q': 'к', 'r': 'р', 's': 'с', 't': 'т', 'u': 'у',
+        'v': 'в', 'w': 'в', 'x': 'кс', 'y': 'и', 'z': 'з'
+    }
+
+    ENGLISH_EXCEPTIONS = {
+        # Бренды и имена
+        "google": "гугл", "apple": "эпл", "microsoft": "микрософт",
+        "samsung": "самсунг", "toyota": "тойота", "volkswagen": "фольцваген",
+        "coca": "кока", "cola": "кола", "pepsi": "пэпси", "whatsapp": "вотсап",
+        "telegram": "телеграм", "youtube": "ютуб", "instagram": "инстаграм",
+        "facebook": "фэйсбук", "twitter": "твиттер", "iphone": "айфон",
+        "tesla": "тесла", "spacex": "спэйс икс", "amazon": "амазон",
+        "python": "пайтон", " ИИ": "эй ай",
+
+        # Служебные слова
+        "a": "э", "the": "зе", "of": "оф", "and": "энд", "for": "фо",
+        "to": "ту", "in": "ин", "on": "он", "is": "из",
+        # Слова, где IPA-библиотека ошибается
+        "nice": "найс", "knowledge": "ноуледж", "new": "нью",
+        "video": "видео", "cake": "кейк", "choose": "чуз",
+        "hot": "хот",
+    }
+
+    IPA_TO_RUSSIAN_MAP = {
+        # Слоговые согласные
+        "əl": "л",
+        # Согласные
+        "p": "п", "b": "б", "t": "т", "d": "д", "k": "к", "g": "г",
+        "m": "м", "n": "н", "ŋ": "нг", "tʃ": "ч", "ʧ": "ч",
+        "dʒ": "дж", "ʤ": "дж", "f": "ф", "v": "в", "θ": "с",
+        "ð": "з", "s": "с", "z": "з", "ʃ": "ш", "ʒ": "ж",
+        "h": "х", "w": "у", "j": "й", "r": "р", "l": "л",
+        # Монофтонги
+        "i:": "и", "ɪ": "и", "i": "и", "e": "е", "ɛ": "е",
+        "æ": "э", "ʌ": "а", "ə": "а", "a": "а", "ɑ": "а",
+        "u:": "у", "ʊ": "у", "u": "у", "ɒ": "о", "ɔ:": "о",
+        "ɔ": "о", "o": "о", "ɑ:": "а", "ɜ:": "ё",
+        # Дифтонги
+        "eɪ": "эй", "aɪ": "ай", "ɔɪ": "ой", "aʊ": "ау",
+        "oʊ": "оу", "əʊ": "оу", "ɪə": "иэ", "eə": "еэ", "ʊə": "уэ",
+        # R-сочетания
+        "ər": "ер", "ɚ": "ер", "ɛr": "эр", "ɪr": "ир", "ɑr": "ар",
+        # Другие сочетания
+        "ju": "ю", "jʊ": "ю",
+        # Служебные символы
+        "ˈ": "", "ˌ": "", "*": "", "ː": ""
+    }
+    
+    def __init__(self):
+        self._max_ipa_key_len = max(len(key) for key in self.IPA_TO_RUSSIAN_MAP.keys())
+
+    def _convert_ipa_to_russian(self, ipa_text: str) -> str:
+        result = ""
+        pos = 0
+        while pos < len(ipa_text):
+            found_match = False
+            for length in range(self._max_ipa_key_len, 0, -1):
+                chunk = ipa_text[pos:pos + length]
+                if chunk in self.IPA_TO_RUSSIAN_MAP:
+                    result += self.IPA_TO_RUSSIAN_MAP[chunk]
+                    pos += length
+                    found_match = True
+                    break
+            if not found_match:
+                pos += 1
+        return result
+
+    def _transliterate_word(self, match):
+        word = match.group(0).lower()
+
+        # Уровень 1: Проверка словаря исключений
+        if word in self.ENGLISH_EXCEPTIONS:
+            log.debug(f"Replacing '{word}' from exceptions -> '{self.ENGLISH_EXCEPTIONS[word]}'")
+            return self.ENGLISH_EXCEPTIONS[word]
+
+        # Уровень 2: Фонетическая транскрипция через IPA
+        try:
+            ipa_transcription = re.sub(r'[/]', '', ipa.convert(word)).strip()
+            if '*' in ipa_transcription: raise ValueError("IPA conversion failed.")
+
+            russian_phonetics = self._convert_ipa_to_russian(ipa_transcription)
+            russian_phonetics = re.sub(r'йй', 'й', russian_phonetics)
+            russian_phonetics = re.sub(r'([чшщждж])ь', r'\1', russian_phonetics)
+
+            log.debug(f"Phonetic replacement: '{word}' -> '{ipa_transcription}' -> '{russian_phonetics}'")
+            return russian_phonetics
+        except Exception:
+            # Уровень 3: Простой побуквенный транслит
+            log.warning(f"Could not get IPA for '{word}'. Falling back to simple transliteration.")
+            return ''.join(self.SIMPLE_ENGLISH_TO_RUSSIAN.get(c, c) for c in word)
+
+    def normalize(self, text: str) -> str:
+        return re.sub(r'\b[a-zA-Z]+\b', self._transliterate_word, text)
+
 
 class TextNormalizer:
     """
@@ -31,6 +128,12 @@ class TextNormalizer:
     _map_to = "--- "
     _translation_table = str.maketrans(_map_from, _map_to, _chars_to_delete)
     _FINAL_CLEANUP_PATTERN = re.compile(r'[^а-яА-ЯёЁ.,?! ]')
+
+    def __init__(self):
+        """
+        Инициализирует TextNormalizer и его компоненты.
+        """
+        self._eng_normalizer = _EnglishToRussianNormalizer()
 
     def normalize(self, text: str) -> str:
         """
@@ -110,10 +213,10 @@ class TextNormalizer:
         return re.sub(r'\b\d+([.,]\d+)?\b', replace_number, text)
 
     def _normalize_english(self, text: str) -> str:
-        def replace_english(match):
-            word = match.group(0).lower()
-            return ''.join(ENGLISH_TO_RUSSIAN.get(c, c) for c in word)
-        return re.sub(r'\b[a-zA-Z]+\b', replace_english, text)
+        """
+        Нормализует английские слова, используя специализированный класс.
+        """
+        return self._eng_normalizer.normalize(text)
 
     def _cleanup_final_text(self, text: str) -> str:
         return self._FINAL_CLEANUP_PATTERN.sub(' ', text)
