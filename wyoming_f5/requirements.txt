@@ -1,4 +1,4 @@
-wyoming-piper
+wyoming
 f5-tts
 ruaccent
 torch
