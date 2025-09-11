@@ -28,7 +28,7 @@ class _EnglishToRussianNormalizer:
         "telegram": "телеграм", "youtube": "ютуб", "instagram": "инстаграм",
         "facebook": "фэйсбук", "twitter": "твиттер", "iphone": "айфон",
         "tesla": "тесла", "spacex": "спэйс икс", "amazon": "амазон",
-        "python": "пайтон", " ИИ": "эй ай",
+        "python": "пайтон", " AI": "эй ай",
 
         # Служебные слова
         "a": "э", "the": "зе", "of": "оф", "and": "энд", "for": "фо",
