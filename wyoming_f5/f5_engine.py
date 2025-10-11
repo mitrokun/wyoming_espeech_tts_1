@@ -4,7 +4,7 @@ import sys
 import torch
 import numpy as np
 from huggingface_hub import hf_hub_download
-from ruaccent import RUAccent
+from silero_stress import load_accentor
 from f5_tts.infer.utils_infer import (
     infer_process,
     load_model,
@@ -38,7 +38,7 @@ class F5_Engine:
         self.vocoder.to(self.device)
 
         print("Предобработка референсного аудио...")
-        processed_ref_text = self.accentizer.process_all(ref_text) if '+' not in ref_text else ref_text
+        processed_ref_text = self.accentizer(ref_text) if '+' not in ref_text else ref_text
         self.ref_audio_proc, self.processed_ref_text_final = preprocess_ref_audio_text(
             ref_audio_path,
             processed_ref_text
@@ -59,14 +59,22 @@ class F5_Engine:
         print("Инициализация TTS модели...")
         return load_model(DiT, MODEL_CFG, model_path, vocab_file=vocab_path)
 
-    def _load_accentizer(self) -> RUAccent:
-        print("Загрузка модели для расстановки ударений (RUAccent)...")
-        accentizer = RUAccent()
-        accentizer.load(omograph_model_size='turbo3.1', use_dictionary=True, tiny_mode=False)
-        return accentizer
+    def _load_accentizer(self):
+        print("Загрузка модели для расстановки ударений (silero-stress)...")
+        try:
+            accentizer = load_accentor()
+            print("Модель silero-stress успешно загружена.")
+            return accentizer
+        except Exception as e:
+            print(f"Не удалось загрузить модель silero-stress: {e}")
+            return None
 
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
-        processed_gen_text = self.accentizer.process_all(text) if '+' not in text else text
+        if self.accentizer:
+            processed_gen_text = self.accentizer(text) if '+' not in text else text
+        else:
+            # Если акцентор не загрузился, работаем без него
+            processed_gen_text = text
 
         infer_args = (
             self.ref_audio_proc,
