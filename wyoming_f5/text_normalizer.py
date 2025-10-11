@@ -162,30 +162,22 @@ class TextNormalizer:
     _map_from = "—–−\xa0"
     _map_to = "--- "
     _translation_table = str.maketrans(_map_from, _map_to, _chars_to_delete)
-    _FINAL_CLEANUP_PATTERN = re.compile(r'[^а-яА-ЯёЁ.,?! ]')
+    _FINAL_CLEANUP_PATTERN = re.compile(r'[^а-яА-ЯёЁ.,?! -]+')
 
     def __init__(self):
-        """
-        Инициализирует TextNormalizer и его компоненты.
-        """
         self._eng_normalizer = _EnglishToRussianNormalizer()
 
     def normalize(self, text: str) -> str:
-        """
-        Выполняет полный цикл нормализации текста.
-        """
-        # Этап 1: "Умная" обработка процентов
+        # Этап 1: Обработка процентов
         normalized_text = self._normalize_percentages(text)
-        # Этап 2: Базовая нормализация символов, пробелов, эмодзи
+        # Этап 2: Нормализация спец. символов
         normalized_text = self._normalize_special_chars(normalized_text)
-        # Этап 3: Оставшиеся числа в слова
+        # Этап 3: Числа в слова
         normalized_text = self._normalize_numbers(normalized_text)
         # Этап 4: Английские слова в русскую транслитерацию
         normalized_text = self._normalize_english(normalized_text)
-        # Этап 5: Финальная очистка от неразрешенных символов
-        normalized_text = self._cleanup_final_text(normalized_text)
-        # Финальная чистка пробелов
-        normalized_text = re.sub(r'\s+', ' ', normalized_text).strip()
+        # Этап 5: Финальная очистка и нормализация пробелов
+        normalized_text = self._cleanup_final_text(normalized_text).strip()
 
         return normalized_text
 
