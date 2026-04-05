@@ -1,3 +1,7 @@
+### Wyoming [F5-TTS](https://github.com/SWivid/F5-TTS)
+
+Наши львы: [https://huggingface.co/ESpeech](https://huggingface.co/ESpeech)
+
 Установили CUDA Toolkit, необходимые библиотеки `pip install wyoming f5-tts torch torchaudio soundfile numpy huggingface_hub num2words eng_to_ipa silero-stress` 
 
 Подобрали 8-10 секунд референсного голоса в wav `mono 16bit 44100Hz` и его расшифровку
@@ -14,4 +18,4 @@
 
 Если в референсных текстах есть проблемные ударения (смотрите лог загрузки), то разметьте их самостоятельно, проставив плюсы перед гласными под ударением.
 
-Наши львы: [https://huggingface.co/ESpeech](https://huggingface.co/ESpeech)
+Линки на модель можно заменить в `f5_engine.py`
