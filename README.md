@@ -2,7 +2,7 @@
 
 Наши львы: [https://huggingface.co/ESpeech](https://huggingface.co/ESpeech)
 
-Установили CUDA Toolkit, необходимые библиотеки `pip install wyoming f5-tts torch torchaudio soundfile numpy huggingface_hub num2words eng_to_ipa silero-stress` 
+Установили CUDA Toolkit, необходимые библиотеки `pip install wyoming f5-tts torch torchaudio soundfile numpy huggingface_hub num2words  sentence_stream eng_to_ipa silero-stress` 
 
 Подобрали 8-10 секунд референсного голоса в wav `mono 16bit 44100Hz` и его расшифровку
 
