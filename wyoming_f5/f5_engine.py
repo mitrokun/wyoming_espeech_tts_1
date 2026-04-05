@@ -1,11 +1,9 @@
-# Файл: f5_engine.py (ПОЛНАЯ ВЕРСИЯ С ГИБРИДНЫМИ УДАРЕНИЯМИ)
-
 import os
 import contextlib
 import sys
 import torch
 import numpy as np
-import re  # Импортируем модуль для регулярных выражений
+import re
 from huggingface_hub import hf_hub_download
 from silero_stress import load_accentor
 from f5_tts.infer.utils_infer import (
@@ -48,7 +46,6 @@ class F5_Engine:
             ref_audio_path = config["ref_audio"]
             ref_text = config["ref_text"]
             
-            # <<< ИЗМЕНЕНИЕ: Используем новый гибридный метод
             processed_ref_text = self._apply_hybrid_accentuation(ref_text)
             
             ref_audio_proc, processed_ref_text_final = preprocess_ref_audio_text(
@@ -83,7 +80,6 @@ class F5_Engine:
             print(f"Не удалось загрузить модель silero-stress: {e}")
             return None
 
-    # <<< НОВЫЙ МЕТОД: Логика гибридной расстановки ударений
     def _apply_hybrid_accentuation(self, text: str) -> str:
         """
         Применяет автоматическую расстановку ударений только к тем словам,
@@ -130,7 +126,6 @@ class F5_Engine:
             
         ref_audio_proc, processed_ref_text_final = self.voice_references[voice_name]
 
-        # <<< ИЗМЕНЕНИЕ: Используем новый гибридный метод
         processed_gen_text = self._apply_hybrid_accentuation(text)
 
         infer_args = (
