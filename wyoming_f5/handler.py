@@ -1,5 +1,3 @@
-# В файле handler.py
-
 import argparse
 import asyncio
 import io
@@ -46,8 +44,6 @@ class F5EventHandler(AsyncEventHandler):
         self._synthesize: Synthesize | None = None
         self._is_streaming = False
         self._audio_started = False
-        
-        # Простой буфер для коротких предложений
         self._sentence_buffer: str = ""
         _LOGGER.debug("Text normalizer initialized.")
 
@@ -85,8 +81,8 @@ class F5EventHandler(AsyncEventHandler):
         self.sbd = SentenceBoundaryDetector()
         self._synthesize = Synthesize(text="", voice=stream_start.voice)
         self._is_streaming = True
-        self._audio_started = False # Сбрасываем флаг для новой сессии
-        self._sentence_buffer = ""  # Очищаем буфер для новой сессии
+        self._audio_started = False
+        self._sentence_buffer = ""
 
     async def _process_sentence(self, sentence: str):
         """
