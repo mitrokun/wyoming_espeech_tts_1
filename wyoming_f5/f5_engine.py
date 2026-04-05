@@ -2,10 +2,12 @@ import os
 import contextlib
 import sys
 import torch
+import torchaudio
 import numpy as np
 import re
 from huggingface_hub import hf_hub_download
 from silero_stress import load_accentor
+
 from f5_tts.infer.utils_infer import (
     infer_process,
     load_model,
@@ -26,28 +28,22 @@ class F5_Engine:
         self.speed = speed
 
         if not torch.cuda.is_available():
-            raise RuntimeError(
-                "CUDA не найдена. Этот сервер требует наличия GPU и корректно установленного PyTorch с поддержкой CUDA."
-            )
+            raise RuntimeError("CUDA не найдена.")
         self.device = torch.device("cuda")
         
         self.model = self._load_tts_model()
         self.vocoder = load_vocoder()
         self.accentizer = self._load_accentizer()
         
-        print(f"Перемещение моделей на устройство: {self.device}")
         self.model.to(self.device)
         self.vocoder.to(self.device)
 
         self.voice_references = {}
-        print("Предобработка референсных аудио...")
         for name, config in voice_configs.items():
-            print(f"  - Обработка голоса: {name}")
             ref_audio_path = config["ref_audio"]
             ref_text = config["ref_text"]
             
             processed_ref_text = self._apply_hybrid_accentuation(ref_text)
-            
             ref_audio_proc, processed_ref_text_final = preprocess_ref_audio_text(
                 ref_audio_path,
                 processed_ref_text
@@ -55,97 +51,125 @@ class F5_Engine:
             self.voice_references[name] = (ref_audio_proc, processed_ref_text_final)
         
         self.nfe_steps = nfe_steps
-        print(f"Движок F5-TTS готов. Устройство: {self.device}. Скорость: {self.speed}. Загружено голосов: {len(self.voice_references)}")
+        print(f"Движок готов. Устройство: {self.device}.")
 
     def _load_tts_model(self) -> DiT:
-        print(f"Загрузка модели '{MODEL_FILE}' из репозитория '{MODEL_REPO}'...")
-        try:
-            model_path = hf_hub_download(repo_id=MODEL_REPO, filename=MODEL_FILE)
-            vocab_path = hf_hub_download(repo_id=MODEL_REPO, filename=VOCAB_FILE)
-        except Exception as e:
-            raise RuntimeError(f"Не удалось загрузить файлы модели с Hugging Face Hub: {e}")
-        if not os.path.exists(model_path) or not os.path.exists(vocab_path):
-            raise FileNotFoundError("Файлы модели или словаря не найдены после попытки загрузки.")
-        print("Инициализация TTS модели...")
+        model_path = hf_hub_download(repo_id=MODEL_REPO, filename=MODEL_FILE)
+        vocab_path = hf_hub_download(repo_id=MODEL_REPO, filename=VOCAB_FILE)
         return load_model(DiT, MODEL_CFG, model_path, vocab_file=vocab_path)
 
     def _load_accentizer(self):
-        print("Загрузка модели для расстановки ударений (silero-stress)...")
         try:
             accentizer = load_accentor()
             accentizer.to('cpu')
-            print("Модель silero-stress успешно загружена.")
             return accentizer
-        except Exception as e:
-            print(f"Не удалось загрузить модель silero-stress: {e}")
+        except:
             return None
 
     def _apply_hybrid_accentuation(self, text: str) -> str:
-        """
-        Применяет автоматическую расстановку ударений только к тем словам,
-        в которых пользователь не указал ударение (+) вручную.
-        """
         if not self.accentizer or '+' not in text:
-            # Если нет accentizer'а или ручных правок, обрабатываем весь текст целиком
             return self.accentizer(text) if self.accentizer else text
-
-        # Разделяем текст на слова (включая '+') и не-слова (пробелы, пунктуация)
-        # Это позволяет сохранить исходную структуру предложения
         tokens = re.findall(r'([а-яА-ЯёЁ+]+|[^а-яА-ЯёЁ+]+)', text)
-        
         words_to_accent = [token for token in tokens if '+' not in token and re.search(r'[а-яА-ЯёЁ]', token)]
-        
-        if not words_to_accent:
-            # Если все слова уже имеют ударения, ничего не делаем
-            return text
-
-        # Объединяем слова для пакетной обработки, акцентируем и разделяем обратно
+        if not words_to_accent: return text
         text_to_accent = ' '.join(words_to_accent)
         accented_text = self.accentizer(text_to_accent)
         accented_words = iter(accented_text.split())
-
-        # Собираем итоговый список токенов, заменяя слова без ударения на их акцентированные версии
         result_tokens = []
         for token in tokens:
             if '+' not in token and re.search(r'[а-яА-ЯёЁ]', token):
-                try:
-                    result_tokens.append(next(accented_words))
-                except StopIteration:
-                    # На случай, если акцентайзер вернул меньше слов, чем ожидал
-                    result_tokens.append(token) 
-            else:
-                result_tokens.append(token)
-        
+                try: result_tokens.append(next(accented_words))
+                except StopIteration: result_tokens.append(token)
+            else: result_tokens.append(token)
         return "".join(result_tokens)
+
+    def _chunk_text(self, text: str, max_chars: int = 150) -> list:
+        """
+        Разбиваем текст на очень мелкие чанки (до 150 символов).
+        Это гарантирует, что модель не выйдет за пределы тензора.
+        """
+        chunks = []
+        # Сначала делим по знакам препинания
+        sentences = re.split(r"(?<=[;:,.!?])\s+|(?<=[；：，。！？])", text)
+        
+        current_chunk = ""
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence: continue
+            
+            if len(current_chunk) + len(sentence) <= max_chars:
+                current_chunk += (sentence + " ")
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                # Если само предложение длиннее max_chars, бьем его по словам
+                if len(sentence) > max_chars:
+                    words = sentence.split()
+                    temp = ""
+                    for w in words:
+                        if len(temp) + len(w) <= max_chars:
+                            temp += (w + " ")
+                        else:
+                            chunks.append(temp.strip())
+                            temp = w + " "
+                    current_chunk = temp
+                else:
+                    current_chunk = sentence + " "
+                    
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        return [c for c in chunks if c]
 
     def synthesize(self, text: str, voice_name: str) -> tuple[np.ndarray, int]:
         if voice_name not in self.voice_references:
-            fallback_name = next(iter(self.voice_references))
-            print(f"Внимание: голос '{voice_name}' не найден. Используется запасной голос: '{fallback_name}'.")
-            voice_name = fallback_name
+            voice_name = next(iter(self.voice_references))
             
         ref_audio_proc, processed_ref_text_final = self.voice_references[voice_name]
 
-        processed_gen_text = self._apply_hybrid_accentuation(text)
+        # 1. Ударения
+        accented_text = self._apply_hybrid_accentuation(text)
 
-        infer_args = (
-            ref_audio_proc,
-            processed_ref_text_final,
-            processed_gen_text,
-            self.model,
-            self.vocoder,
-        )
-        infer_kwargs = dict(
-            nfe_step=self.nfe_steps,
-            speed=self.speed
-        )
+        # 2. Агрессивная нарезка на куски
+        text_chunks = self._chunk_text(accented_text, max_chars=85)
+        
+        all_waves = []
+        final_sample_rate = 24000
 
-        if self.debug:
-            final_wave, final_sample_rate, _ = infer_process(*infer_args, **infer_kwargs)
-        else:
-            with open(os.devnull, 'w') as f, \
-                 contextlib.redirect_stdout(f), \
-                 contextlib.redirect_stderr(f):
-                final_wave, final_sample_rate, _ = infer_process(*infer_args, **infer_kwargs)
+        # 3. Синтезируем каждый чанк отдельно и собираем в список
+        for i, chunk in enumerate(text_chunks):
+            if self.debug:
+                print(f"Синтез чанка {i+1}/{len(text_chunks)}: {chunk}")
             
+            infer_kwargs = dict(
+                ref_audio=ref_audio_proc,
+                ref_text=processed_ref_text_final,
+                gen_text=chunk,
+                model_obj=self.model,
+                vocoder=self.vocoder,
+                nfe_step=self.nfe_steps,
+                speed=self.speed
+            )
+
+            try:
+                if self.debug:
+                    wave, sr, _ = infer_process(**infer_kwargs)
+                else:
+                    with open(os.devnull, 'w') as f, \
+                         contextlib.redirect_stdout(f), \
+                         contextlib.redirect_stderr(f):
+                        wave, sr, _ = infer_process(**infer_kwargs)
+                
+                if wave is not None:
+                    all_waves.append(wave)
+                    final_sample_rate = sr
+            except Exception as e:
+                print(f"Ошибка на чанке '{chunk}': {e}")
+                continue
+
+        # 4. Склеиваем аудио
+        if not all_waves:
+            return np.array([], dtype=np.float32), final_sample_rate
+
+        final_wave = np.concatenate(all_waves)
+        
         return final_wave, final_sample_rate

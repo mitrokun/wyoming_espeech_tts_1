@@ -88,7 +88,8 @@ async def main() -> None:
             voice_configs=engine_voice_configs,
             nfe_steps=args.nfe_step,
             speed=args.speed,
-            debug=args.debug
+            # debug=args.debug
+            debug=False
         )
     except RuntimeError as e:
         _LOGGER.fatal(e)

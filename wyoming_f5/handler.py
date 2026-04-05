@@ -2,7 +2,7 @@ import argparse
 import asyncio
 import io
 import logging
-import math
+import time
 import wave
 import soundfile as sf
 
@@ -44,6 +44,7 @@ class F5EventHandler(AsyncEventHandler):
         self._synthesize: Synthesize | None = None
         self._is_streaming = False
         self._audio_started = False
+        
         self._sentence_buffer: str = ""
         _LOGGER.debug("Text normalizer initialized.")
 
@@ -70,13 +71,13 @@ class F5EventHandler(AsyncEventHandler):
 
         except Exception as err:
             _LOGGER.exception("Error processing event: %s", event)
-            await self.write_event(Error(text=str(err), code=err.__class__.__name__))
+            # Отправляем событие ошибки в формате Wyoming
+            await self.write_event(Error(text=str(err), code=err.__class__.__name__).event())
             self._is_streaming = False
         
         return True
 
     async def _handle_stream_start(self, stream_start: SynthesizeStart):
-        """Инициализирует новую стриминг-сессию."""
         _LOGGER.debug("Text stream started")
         self.sbd = SentenceBoundaryDetector()
         self._synthesize = Synthesize(text="", voice=stream_start.voice)
@@ -85,46 +86,38 @@ class F5EventHandler(AsyncEventHandler):
         self._sentence_buffer = ""
 
     async def _process_sentence(self, sentence: str):
-        """
-        Добавляет предложение в буфер и, если буфер достаточно большой, отправляет его на синтез.
-        """
         sentence = sentence.strip()
         if not sentence:
             return
 
-        # Добавляем новое предложение в буфер, разделяя пробелом
         if self._sentence_buffer:
             self._sentence_buffer += " " + sentence
         else:
             self._sentence_buffer = sentence
 
-        # Если буфер достиг нужной длины (15 символов), синтезируем его содержимое
+        # 15 символов - хороший порог, чтобы не синтезировать "Да." отдельно
         if len(self._sentence_buffer) >= 15:
             _LOGGER.debug(f"Buffer is long enough ({len(self._sentence_buffer)} chars). Flushing.")
             await self._flush_buffer()
 
     async def _flush_buffer(self):
-        """Принудительно синтезирует содержимое буфера и очищает его."""
         text_to_synthesize = self._sentence_buffer.strip()
-        self._sentence_buffer = "" # Очищаем буфер
+        self._sentence_buffer = "" 
 
         if text_to_synthesize:
             await self._synthesize_and_stream_audio(text_to_synthesize)
 
     async def _handle_stream_chunk(self, stream_chunk: SynthesizeChunk):
-        """Обрабатывает текстовый чанк в рамках активной сессии."""
-        assert self.sbd is not None, "SentenceBoundaryDetector not initialized"
+        assert self.sbd is not None
         for sentence in self.sbd.add_chunk(stream_chunk.text):
             await self._process_sentence(sentence)
 
     async def _handle_stream_stop(self):
-        """Завершает стриминг-сессию и синтезирует остатки из буфера."""
-        assert self.sbd is not None, "SentenceBoundaryDetector not initialized"
+        assert self.sbd is not None
         remaining_text = self.sbd.finish()
         if remaining_text:
             await self._process_sentence(remaining_text)
 
-        # Принудительно сбрасываем все, что осталось в буфере
         await self._flush_buffer()
 
         if self._audio_started:
@@ -135,9 +128,10 @@ class F5EventHandler(AsyncEventHandler):
         self._is_streaming = False
 
     async def _handle_single_synthesize(self, synthesize: Synthesize):
-        """Обрабатывает одиночный (не-стриминговый) запрос."""
+        """Обрабатывает одиночный запрос."""
         self._audio_started = False
-        self._sentence_buffer = "" # Очищаем буфер для нового запроса
+        self._sentence_buffer = ""
+        self._synthesize = synthesize
         
         sbd = SentenceBoundaryDetector()
         sentences = list(sbd.add_chunk(synthesize.text))
@@ -146,45 +140,54 @@ class F5EventHandler(AsyncEventHandler):
             sentences.append(final_text)
 
         if not sentences:
-            await self.write_event(AudioStop().event())
+            if not self._audio_started:
+                 # Если текста нет вообще
+                 await self.write_event(SynthesizeStopped().event())
+            else:
+                 await self.write_event(AudioStop().event())
             return
             
         for sentence in sentences:
             await self._process_sentence(sentence)
 
-        # Принудительно сбрасываем остатки из буфера в конце
         await self._flush_buffer()
 
         if self._audio_started:
             await self.write_event(AudioStop().event())
+        
+        await self.write_event(SynthesizeStopped().event())
 
-    async def _synthesize_and_stream_audio(self, text: str, voice_override: Synthesize.voice = None):
-        """
-        Универсальная функция: синтезирует текст и отдает аудио чанками.
-        Управляет отправкой единственного AudioStart.
-        """
+    async def _synthesize_and_stream_audio(self, text: str):
+        # Голос берется из сохраненного объекта self._synthesize
         if self._synthesize and self._synthesize.voice:
              voice_name = self._synthesize.voice.name
-        elif voice_override:
-             voice_name = voice_override.name
         else:
-             _LOGGER.warning("No voice selected for synthesis.")
-             return
+             _LOGGER.warning("No voice selected for synthesis. Using default.")
+             voice_name = "default"
         
         normalized_text = self.normalizer.normalize(text)
         if not normalized_text:
             return
 
+        # Авто-пунктуация (добавляем точку в конце, если её нет)
         if self.cli_args.auto_punctuation and normalized_text[-1] not in self.cli_args.auto_punctuation:
             normalized_text += self.cli_args.auto_punctuation[0]
 
-        _LOGGER.debug("Synthesizing normalized text: '%s'", normalized_text)
-        
+        _LOGGER.debug("Synthesizing: '%s'", normalized_text)
+
+        start_time = time.monotonic()
+
         loop = asyncio.get_running_loop()
         final_wave, sample_rate = await loop.run_in_executor(
             None, self.f5_engine.synthesize, normalized_text, voice_name
         )
 
+        elapsed_time = time.monotonic() - start_time
+        _LOGGER.debug(
+            f"Generation finished. Chars: {len(normalized_text)}, Time: {elapsed_time:.4f}s"
+        )
+        
+        # Подготовка аудио к отправке
         wav_buffer = io.BytesIO()
         sf.write(wav_buffer, final_wave, sample_rate, format='WAV', subtype='PCM_16')
         wav_buffer.seek(0)
